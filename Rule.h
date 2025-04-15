@@ -13,22 +13,28 @@ using namespace std;
 
 class Rule {
 private:
-    Predicate headPred;
+    Predicate headPredicate;
     vector<Predicate> predicates;
 
 public:
-    Rule(Predicate headPred, vector<Predicate> predicates) : headPred(headPred), predicates(predicates) {}
+    Rule(Predicate headPred, vector<Predicate> predicates) : headPredicate(headPred), predicates(predicates) {}
+
+    Rule(Predicate headPred) : headPredicate(headPred) {}
 
     Predicate getHeadPredicate() const {
-        return headPred;
+        return headPredicate;
     }
 
     vector<Predicate> getPredicates() const {
         return predicates;
     }
 
+    void addBodyPredicate(Predicate predicate) {
+        predicates.push_back(predicate);
+    }
+
     string toString() {
-        string ruleString = headPred.toString();
+        string ruleString = headPredicate.toString();
 
         ruleString += " :- ";
 

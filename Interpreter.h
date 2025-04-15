@@ -11,6 +11,7 @@
 #include "Tuple.h"
 #include "Parameter.h"
 #include "Predicate.h"
+#include "Graph.h"
 #include <iostream>
 
 
@@ -58,6 +59,8 @@ class Interpreter {
      }
 
     void queries() {
+            cout << "Query Evaluation" << endl;
+
             for (const Predicate& query : program.getQueries()) {
                 cout << query.toString() << "? ";
 
@@ -77,75 +80,121 @@ class Interpreter {
         }
 
     void rules() {
-    cout << "Rule Evaluation" << endl;
 
-    bool addedTuples = false;
-    int passes = 0;
+        cout << "Dependency Graph" << endl;
 
-    do {
-        addedTuples = false;
-        passes++;
+        pair<Graph, Graph> graphs = makeGraph(program.getRules());
+        Graph graph = graphs.first;
+        Graph reverseGraph = graphs.second;
 
-        vector<Rule> rules = program.getRules();
+        cout << graph.toString() << endl;
 
-        for (unsigned i = 0; i < rules.size(); i++) {
-            Rule rule = rules[i];
+        stack<int> finishOrder = reverseGraph.getFinishOrder();
 
-            cout << rule.toString() << "." << endl;
+        vector<bool> visited(graph.getSize(), false);
 
-            vector<Relation> bodyRelations;
-            vector<Predicate> bodyPredicates = rule.getPredicates();
-            for (unsigned j = 0; j < bodyPredicates.size(); j++) {
-                Relation r = evalPredicate(bodyPredicates[j]);
-                // cout << r.toString();
-                bodyRelations.push_back(r);
-            }
+            vector<set<int>> sccs;
 
-            Relation joinedRelation = bodyRelations[0];
-            // cout << joinedRelation.toString() << endl;
-            for (unsigned j = 1; j < bodyRelations.size(); j++) {
-                joinedRelation = joinedRelation.join(bodyRelations[j]);
-                // cout << joinedRelation.toString();
-            }
+            while (!finishOrder.empty()) {
+                int node = finishOrder.top();
+                finishOrder.pop();
 
-            Predicate head = rule.getHeadPredicate();
-
-            vector<int> indexes;
-            Scheme joinedScheme = joinedRelation.getScheme();
-            vector<Parameter> headParams = head.getParameters();
-            for (unsigned j = 0; j < headParams.size(); j++) {
-                string name = headParams[j].toString();
-                for (unsigned k = 0; k < joinedScheme.size(); k++) {
-                    if (joinedScheme[k] == name) {
-                        indexes.push_back(k);
-                        break;
-                    }
+                if (!visited[node]) {
+                    set<int> component;
+                    graph.compDFS(node, visited, component);
+                    sccs.push_back(component);
                 }
             }
 
-            Relation projected = joinedRelation.project(indexes);
-            vector<string> newNames;
-            for (unsigned j = 0; j < headParams.size(); j++) {
-                newNames.push_back(headParams[j].toString());
+        // reverse(sccs.begin(), sccs.end());
+
+        cout << "Rule Evaluation" << endl;
+            // cout << sccs.size() << endl;
+
+        for (auto scc : sccs) {
+            bool addedTuples = false;
+            int passes = 0;
+            cout << "SCC: ";
+            bool first = true;
+            for (auto id : scc) {
+                if (!first) {
+                    cout << ",";
+                }
+                cout << "R" << id;
+                first = false;
             }
-            projected = projected.rename(newNames);
+            cout << endl;
 
-            string headName = head.getName();
-            Relation& target = database.getRelation(headName);
+            do {
+                addedTuples = false;
+                passes++;
 
-            bool added = target.unionWith(projected);
+                vector<Rule> rules = program.getRules();
 
-            if (added) {
-                addedTuples = true;
+                for (auto id : scc) {
+                    Rule rule = rules[id];
+
+                    cout << rule.toString() << "." << endl;
+
+                    vector<Relation> bodyRelations;
+                    vector<Predicate> bodyPredicates = rule.getPredicates();
+                    for (unsigned j = 0; j < bodyPredicates.size(); j++) {
+                        Relation r = evalPredicate(bodyPredicates[j]);
+                        // cout << r.toString();
+                        bodyRelations.push_back(r);
+                    }
+
+                    Relation joinedRelation = bodyRelations[0];
+                    // cout << joinedRelation.toString() << endl;
+                    for (unsigned j = 1; j < bodyRelations.size(); j++) {
+                        joinedRelation = joinedRelation.join(bodyRelations[j]);
+                        // cout << joinedRelation.toString();
+                    }
+
+                    Predicate head = rule.getHeadPredicate();
+
+                    vector<int> indexes;
+                    Scheme joinedScheme = joinedRelation.getScheme();
+                    vector<Parameter> headParams = head.getParameters();
+                    for (unsigned j = 0; j < headParams.size(); j++) {
+                        string name = headParams[j].toString();
+                        for (unsigned k = 0; k < joinedScheme.size(); k++) {
+                            if (joinedScheme[k] == name) {
+                                indexes.push_back(k);
+                                break;
+                            }
+                        }
+                    }
+
+                    Relation projected = joinedRelation.project(indexes);
+                    vector<string> newNames;
+                    for (unsigned j = 0; j < headParams.size(); j++) {
+                        newNames.push_back(headParams[j].toString());
+                    }
+                    projected = projected.rename(newNames);
+
+                    string headName = head.getName();
+                    Relation& target = database.getRelation(headName);
+
+                    bool added = target.unionWith(projected);
+
+                    if (added) {
+                        addedTuples = true;
+                    }
+                }
+            } while (addedTuples && (scc.size() > 1 || graph.infiniteProblem(*scc.begin())));
+            cout << passes << " passes: ";
+            first = true;
+            for (auto id : scc) {
+                if (!first) {
+                    cout << ",";
+                }
+                cout << "R" << id;
+                first = false;
             }
+            cout << endl;
         }
-
-    } while (addedTuples);
-
     cout << endl;
-    cout << "Schemes populated after " << passes << " passes through the Rules." << endl;
-    cout << endl;
-    cout << "Query Evaluation" << endl;
 }
 
 
@@ -179,6 +228,36 @@ class Interpreter {
         relation = relation.rename(reNames);
 
         return relation;
+    }
+
+    static pair<Graph, Graph> makeGraph(const vector<Rule>& rules) {
+        Graph graph(rules.size());
+        Graph reverseGraph(rules.size());
+        int fromIndex = 0;
+        int toIndex = 0;
+
+        for (auto r : rules) {
+            // cout << "from rule R" << fromIndex << ": " << rule.toString() << endl;
+            for (auto predicate : r.getPredicates()) {
+                // cout << "from body predicate: " << predicate.toString() << endl;
+                toIndex = 0;
+                for (auto other : rules) {
+                    // cout << "to rule R" << toIndex << ": " << rule.toString() << endl;
+                    if (predicate.getName() == other.getHeadPredicate().getName()) {
+
+                        // cout << "graph: " <<fromIndex << ", " << toIndex << endl;
+                        graph.addEdge(fromIndex, toIndex);
+
+                        // cout << "graph: " <<fromIndex << ", " << toIndex <<  endl;
+                        reverseGraph.addEdge(toIndex, fromIndex);
+                        // cout << "dependency found: " << "(R" << fromIndex << ",R" << toIndex << ")" << endl;
+                    }
+                    toIndex++;
+                }
+            }
+            fromIndex++;
+        }
+        return pair<Graph, Graph>(graph, reverseGraph);
     }
 
     void run() {

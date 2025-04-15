@@ -9,11 +9,14 @@
 #include "Tuple.h"
 #include "Relation.h"
 #include "Interpreter.h"
+#include "Predicate.h"
+#include "Rule.h"
+#include "Node.h"
+#include "Graph.h"
 
 using namespace std;
 
 int main(int argc, char* argv[]) {
-
     char* filename = argv[1];
 
     ifstream in;
